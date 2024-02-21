@@ -19,15 +19,15 @@ package org.alexv.finnhubclient.model;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 @EqualsAndHashCode(callSuper = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder({ "currency", "figi", "mic", "isin", "shareClassFIGI", "symbol2" })
 @Data
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class EnrichedSymbol extends Symbol {
 
 	@JsonProperty("currency")

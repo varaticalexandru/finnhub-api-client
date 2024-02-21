@@ -30,6 +30,8 @@ import org.apache.hc.core5.http.ParseException;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -152,8 +154,38 @@ public class FinnhubClient {
         });
     }
 
-    public CompletableFuture<List<EnrichedSymbol>> searchStock(String exchange, String mic, String symbol) {
-        HttpGet get = new HttpGet(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + exchange + "&mic=" + mic);
+    public CompletableFuture<List<EnrichedSymbol>> searchAllStock(String exchange, String symbol) {
+        HttpGet get = new HttpGet(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + exchange);
+
+        return CompletableFuture.supplyAsync(() -> {
+            String result = null;
+            try (CloseableHttpResponse response = httpClient.execute(get)) {
+                result = EntityUtils.toString(response.getEntity());
+            } catch (ParseException | IOException e) {
+                throw new RuntimeException(e);
+            }
+
+            List<EnrichedSymbol> stocks = null;
+            try {
+                stocks = objectMapper.readValue(result, new TypeReference<List<EnrichedSymbol>>() {
+                });
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+
+            var stock = stocks.stream()
+                    .filter(s -> s.getSymbol().compareTo(symbol) == 0)
+                    .findFirst()
+                    .orElse(EnrichedSymbol.builder().figi("").build());
+
+            return stock.getFigi().isBlank()
+                    ? Collections.emptyList()
+                    : List.of(stock);
+        });
+    }
+
+    public CompletableFuture<List<EnrichedSymbol>> searchAllStock(String exchange, List<String> mics, List<String> symbols) {
+        HttpGet get = new HttpGet(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + exchange);
 
         return CompletableFuture.supplyAsync(() -> {
             String result = null;
@@ -172,7 +204,7 @@ public class FinnhubClient {
             }
 
             return stocks.stream()
-                    .filter(stock -> stock.getSymbol().compareTo(symbol) == 0)
+                    .filter(stock -> mics.contains(stock.getMic()) &&  symbols.contains(stock.getSymbol()))
                     .toList();
         });
     }

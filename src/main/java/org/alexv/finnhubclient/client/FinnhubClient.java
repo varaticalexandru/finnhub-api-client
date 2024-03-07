@@ -81,7 +81,7 @@ public class FinnhubClient {
                     @Override
                     public void completed(SimpleHttpResponse response) {
                         try {
-                            Quote quote = objectMapper.readValue(response.getBodyText().toString(), Quote.class);
+                            Quote quote = objectMapper.readValue(response.getBodyText(), Quote.class);
                             futureQuote.complete(quote);
                         } catch (JsonProcessingException exception) {
                             futureQuote.completeExceptionally(exception);
@@ -89,8 +89,8 @@ public class FinnhubClient {
                     }
 
                     @Override
-                    public void failed(Exception exception) {
-                        futureQuote.completeExceptionally(exception);
+                    public void failed(Exception e) {
+                        futureQuote.completeExceptionally(e);
                     }
 
                     @Override
@@ -106,8 +106,38 @@ public class FinnhubClient {
 
 
     public CompletableFuture<Candle> getCandle(String symbol, String resolution, long startEpoch, long endEpoch) {
-        HttpGet get = new HttpGet(Endpoint.CANDLE.url() + "?token=" + token
+
+        CompletableFuture<Candle> futureCandle = new CompletableFuture<>();
+
+        URI uri = URI.create(Endpoint.CANDLE.url() + "?token=" + token
                 + "&symbol=" + symbol.toUpperCase() + "&resolution=" + resolution + "&from=" + startEpoch + "&to=" + endEpoch);
+
+        SimpleHttpRequest request = SimpleHttpRequest.create(Method.GET, uri);
+
+        httpClient.execute(
+                request,
+                new FutureCallback<SimpleHttpResponse>() {
+                    @Override
+                    public void completed(SimpleHttpResponse response) {
+                        try {
+                            Candle candle = objectMapper.readValue(response.getBodyText(), Candle.class);
+                            futureCandle.complete(candle);
+                        } catch (JsonProcessingException e) {
+                            futureCandle.completeExceptionally(e);
+                        }
+                    }
+
+                    @Override
+                    public void failed(Exception e) {
+                        futureCandle.completeExceptionally(e);
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        futureCandle.cancel(true);
+                    }
+                }
+        );
 
         return CompletableFuture.supplyAsync(() -> {
             String result;

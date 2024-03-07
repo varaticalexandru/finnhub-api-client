@@ -139,20 +139,7 @@ public class FinnhubClient {
                 }
         );
 
-        return CompletableFuture.supplyAsync(() -> {
-            String result;
-            try (CloseableHttpResponse response = httpClient.execute(get)) {
-                result = EntityUtils.toString(response.getEntity());
-            } catch (IOException | ParseException e) {
-                throw new RuntimeException(e);
-            }
-
-            try {
-                return objectMapper.readValue(result, Candle.class);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        });
+       return futureCandle;
     }
 
     public CompletableFuture<CompanyProfile> getCompanyProfile(String symbol) {
@@ -192,7 +179,6 @@ public class FinnhubClient {
                 throw new RuntimeException(e);
             }
         });
-
     }
 
     public CompletableFuture<SymbolLookup> searchSymbol(String query) {

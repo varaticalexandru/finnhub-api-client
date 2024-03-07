@@ -143,22 +143,39 @@ public class FinnhubClient {
     }
 
     public CompletableFuture<CompanyProfile> getCompanyProfile(String symbol) {
-        HttpGet get = new HttpGet(Endpoint.COMPANY_PROFILE.url() + "?token=" + token + "&symbol=" + symbol);
 
-        return CompletableFuture.supplyAsync(() -> {
-            String result;
-            try (CloseableHttpResponse response = httpClient.execute(get)) {
-                result = EntityUtils.toString(response.getEntity());
-            } catch (IOException | ParseException e) {
-                throw new RuntimeException(e);
-            }
+        CompletableFuture<CompanyProfile> futureCompanyProfile = new CompletableFuture<>();
 
-            try {
-                return objectMapper.readValue(result, CompanyProfile.class);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        URI uri = URI.create(Endpoint.COMPANY_PROFILE.url() + "?token=" + token + "&symbol=" + symbol);
+
+        SimpleHttpRequest request = SimpleHttpRequest.create(Method.GET, uri);
+
+        httpClient.execute(
+                request,
+                new FutureCallback<SimpleHttpResponse>() {
+                    @Override
+                    public void completed(SimpleHttpResponse response) {
+                        try {
+                            CompanyProfile companyProfile = objectMapper.readValue(response.getBodyText(), CompanyProfile.class);
+                            futureCompanyProfile.complete(companyProfile);
+                        } catch (JsonProcessingException e) {
+                            futureCompanyProfile.completeExceptionally(e);
+                        }
+                    }
+
+                    @Override
+                    public void failed(Exception e) {
+                        futureCompanyProfile.completeExceptionally(e);
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        futureCompanyProfile.cancel(true);
+                    }
+                }
+        );
+
+        return futureCompanyProfile;
     }
 
     public CompletableFuture<List<EnrichedSymbol>> getSymbols(String exchange) {

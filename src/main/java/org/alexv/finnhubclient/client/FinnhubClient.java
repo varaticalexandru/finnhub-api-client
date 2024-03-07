@@ -26,6 +26,7 @@ import org.apache.hc.core5.util.Timeout;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -179,23 +180,39 @@ public class FinnhubClient {
     }
 
     public CompletableFuture<List<EnrichedSymbol>> getSymbols(String exchange) {
-        HttpGet get = new HttpGet(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + Exchange.valueOf(exchange).code());
 
-        return CompletableFuture.supplyAsync(() -> {
-            String result;
-            try (CloseableHttpResponse response = httpClient.execute(get)) {
-                result = EntityUtils.toString(response.getEntity());
-            } catch (IOException | ParseException e) {
-                throw new RuntimeException(e);
-            }
+        CompletableFuture<List<EnrichedSymbol>> futureEnrichedSymbolList = new CompletableFuture<>();
 
-            try {
-                return objectMapper.readValue(result, new TypeReference<List<EnrichedSymbol>>() {
-                });
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        URI uri = URI.create(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + Exchange.valueOf(exchange).code());
+
+        SimpleHttpRequest request = SimpleHttpRequest.create(Method.GET, uri);
+
+        httpClient.execute(
+                request,
+                new FutureCallback<SimpleHttpResponse>() {
+                    @Override
+                    public void completed(SimpleHttpResponse response) {
+                        try {
+                            List<EnrichedSymbol>  enrichedSymbolList = objectMapper.readValue(response.getBodyText(), new TypeReference<List<EnrichedSymbol>>(){});
+                            futureEnrichedSymbolList.complete(enrichedSymbolList);
+                        } catch (JsonProcessingException e) {
+                            futureEnrichedSymbolList.completeExceptionally(e);
+                        }
+                    }
+
+                    @Override
+                    public void failed(Exception e) {
+                        futureEnrichedSymbolList.completeExceptionally(e);
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        futureEnrichedSymbolList.cancel(true);
+                    }
+                }
+        );
+
+        return futureEnrichedSymbolList;
     }
 
     public CompletableFuture<SymbolLookup> searchSymbol(String query) {

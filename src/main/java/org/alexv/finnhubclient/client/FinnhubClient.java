@@ -6,14 +6,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.alexv.finnhubclient.model.*;
+import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
+import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
+import org.apache.hc.client5.http.async.methods.SimpleRequestProducer;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequest;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.Method;
 import org.apache.hc.core5.http.ParseException;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.nio.support.AsyncRequestBuilder;
+import org.apache.hc.core5.reactor.IOReactorConfig;
+import org.apache.hc.core5.util.Timeout;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -22,39 +34,74 @@ import java.util.concurrent.CompletableFuture;
 @NoArgsConstructor
 public class FinnhubClient {
 
-    private CloseableHttpClient httpClient = HttpClients.createDefault();
+    private CloseableHttpAsyncClient httpClient;
     private String token;
     private ObjectMapper objectMapper = new ObjectMapper();
 
     public FinnhubClient(String token) {
         this.token = token;
+
+        configClient();
+        startClient();
     }
 
-    public FinnhubClient(CloseableHttpClient httpClient, String token, ObjectMapper objectMapper) {
+    public FinnhubClient(CloseableHttpAsyncClient httpClient, String token, ObjectMapper objectMapper) {
         this.httpClient = httpClient;
         this.token = token;
         this.objectMapper = objectMapper;
+
+        startClient();
     }
 
+    private void startClient() {
+        this.httpClient.start();
+    }
+
+    private void configClient() {
+        IOReactorConfig ioReactorConfig = IOReactorConfig.custom()
+                .setSoTimeout(Timeout.ofSeconds(5))
+                .build();
+
+        this.httpClient = HttpAsyncClients.custom()
+                .setIOReactorConfig(ioReactorConfig)
+                .build();
+    }
+
+
     public CompletableFuture<Quote> getQuote(String symbol) {
-        HttpGet get = new HttpGet(Endpoint.QUOTE.url() + "?token=" + token + "&symbol=" + symbol);
 
-        return CompletableFuture.supplyAsync(() -> {
-            String result;
-            try (CloseableHttpResponse response = httpClient.execute(get)) {
-                result = EntityUtils.toString(response.getEntity());
-            } catch (IOException | ParseException e) {
-                throw new RuntimeException(e);
-            }
+        CompletableFuture<Quote> futureQuote = new CompletableFuture<>();
+        URI uri = URI.create(Endpoint.QUOTE.url() + "?token=" + token + "&symbol=" + symbol);
 
+        SimpleHttpRequest request = SimpleHttpRequest.create(Method.GET, uri);
 
-            try {
-                return objectMapper.readValue(result, Quote.class);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        httpClient.execute(
+                request,
+                new FutureCallback<>() {
+                    @Override
+                    public void completed(SimpleHttpResponse response) {
+                        try {
+                            Quote quote = objectMapper.readValue(response.getBodyText().toString(), Quote.class);
+                            futureQuote.complete(quote);
+                        } catch (JsonProcessingException exception) {
+                            futureQuote.completeExceptionally(exception);
+                        }
+                    }
 
+                    @Override
+                    public void failed(Exception exception) {
+                        futureQuote.completeExceptionally(exception);
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        futureQuote.cancel(true);
+                    }
+
+                }
+        );
+
+        return futureQuote;
     }
 
 
@@ -187,7 +234,7 @@ public class FinnhubClient {
             }
 
             return stocks.stream()
-                    .filter(stock -> mics.contains(stock.getMic()) &&  symbols.contains(stock.getSymbol()))
+                    .filter(stock -> mics.contains(stock.getMic()) && symbols.contains(stock.getSymbol()))
                     .toList();
         });
     }

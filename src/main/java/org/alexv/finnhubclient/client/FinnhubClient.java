@@ -216,22 +216,39 @@ public class FinnhubClient {
     }
 
     public CompletableFuture<SymbolLookup> searchSymbol(String query) {
-        HttpGet get = new HttpGet(Endpoint.SYMBOL_LOOKUP.url() + "?token=" + token + "&q=" + query);
 
-        return CompletableFuture.supplyAsync(() -> {
-            String result;
-            try (CloseableHttpResponse response = httpClient.execute(get)) {
-                result = EntityUtils.toString(response.getEntity());
-            } catch (IOException | ParseException e) {
-                throw new RuntimeException(e);
-            }
+        CompletableFuture<SymbolLookup> futureSymbols = new CompletableFuture<>();
 
-            try {
-                return objectMapper.readValue(result, SymbolLookup.class);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        URI uri = URI.create(Endpoint.SYMBOL_LOOKUP.url() + "?token=" + token + "&q=" + query);
+
+        SimpleHttpRequest request = SimpleHttpRequest.create(Method.GET, uri);
+
+        httpClient.execute(
+                request,
+                new FutureCallback<SimpleHttpResponse>() {
+                    @Override
+                    public void completed(SimpleHttpResponse response) {
+                        try {
+                            SymbolLookup symbols = objectMapper.readValue(response.getBodyText(), SymbolLookup.class);
+                            futureSymbols.complete(symbols);
+                        } catch (JsonProcessingException e) {
+                            futureSymbols.completeExceptionally(e);
+                        }
+                    }
+
+                    @Override
+                    public void failed(Exception e) {
+                        futureSymbols.completeExceptionally(e);
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        futureSymbols.cancel(true);
+                    }
+                }
+        );
+
+        return futureSymbols;
     }
 
     public CompletableFuture<List<EnrichedSymbol>> searchAllStock(String exchange, String symbol) {

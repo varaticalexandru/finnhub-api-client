@@ -252,33 +252,44 @@ public class FinnhubClient {
     }
 
     public CompletableFuture<List<EnrichedSymbol>> searchAllStock(String exchange, String symbol) {
-        HttpGet get = new HttpGet(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + exchange);
 
-        return CompletableFuture.supplyAsync(() -> {
-            String result;
-            try (CloseableHttpResponse response = httpClient.execute(get)) {
-                result = EntityUtils.toString(response.getEntity());
-            } catch (ParseException | IOException e) {
-                throw new RuntimeException(e);
-            }
+        CompletableFuture<List<EnrichedSymbol>> futureEnrichedSymbolList = new CompletableFuture<>();
 
-            List<EnrichedSymbol> stocks;
-            try {
-                stocks = objectMapper.readValue(result, new TypeReference<List<EnrichedSymbol>>() {
-                });
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
+        URI uri = URI.create(Endpoint.SYMBOL.url() + "?token=" + token + "&exchange=" + exchange);
 
-            var stock = stocks.stream()
-                    .filter(s -> s.getSymbol().compareTo(symbol) == 0)
-                    .findFirst()
-                    .orElse(EnrichedSymbol.builder().figi("").build());
+        SimpleHttpRequest request = SimpleHttpRequest.create(Method.GET, uri);
 
-            return stock.getFigi().isBlank()
-                    ? Collections.emptyList()
-                    : List.of(stock);
-        });
+        httpClient.execute(
+                request,
+                new FutureCallback<SimpleHttpResponse>() {
+                    @Override
+                    public void completed(SimpleHttpResponse response) {
+                        try {
+                            List<EnrichedSymbol> enrichedSymbolList = objectMapper.readValue(response.getBodyText(), new TypeReference<List<EnrichedSymbol>>(){});
+                            EnrichedSymbol stock = filterEnrichedSymbols(enrichedSymbolList, symbol);
+
+                            futureEnrichedSymbolList.complete(
+                                    stock.getFigi().isBlank()
+                                    ? Collections.emptyList()
+                                    : List.of(stock));
+                        } catch (JsonProcessingException e) {
+                            futureEnrichedSymbolList.completeExceptionally(e);
+                        }
+                    }
+
+                    @Override
+                    public void failed(Exception e) {
+                        futureEnrichedSymbolList.completeExceptionally(e);
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        futureEnrichedSymbolList.cancel(true);
+                    }
+                }
+        );
+
+        return futureEnrichedSymbolList;
     }
 
     public CompletableFuture<List<EnrichedSymbol>> searchAllStock(String exchange, List<String> mics, List<String> symbols) {
@@ -304,5 +315,12 @@ public class FinnhubClient {
                     .filter(stock -> mics.contains(stock.getMic()) && symbols.contains(stock.getSymbol()))
                     .toList();
         });
+    }
+
+    private EnrichedSymbol filterEnrichedSymbols(List<EnrichedSymbol> symbols, String targetSymbol) {
+        return symbols.stream()
+                .filter(s -> s.getSymbol().equals(targetSymbol))
+                .findFirst()
+                .orElse(EnrichedSymbol.builder().figi("").build());
     }
 }
